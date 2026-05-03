@@ -3,11 +3,17 @@ import { normalize } from "./normalize.js";
 import { clusterCards, type CardGroup } from "./cluster.js";
 import { buildParentIndex, inferFields, type Extracted } from "./infer.js";
 
+export interface GroupSummary {
+  cardCount: number;
+  fingerprint: string;
+}
+
 export interface ScrapeResult {
   url: string;
   groupCount: number;
   cardCount: number;
   fingerprint: string;
+  groupSummaries: GroupSummary[];
   items: Extracted[];
 }
 
@@ -25,11 +31,17 @@ export async function scrape(
   const groups = clusterCards(norm);
   const byParent = buildParentIndex(norm.nodes);
 
+  const groupSummaries: GroupSummary[] = groups.map((g) => ({
+    cardCount: g.cards.length,
+    fingerprint: g.fingerprint,
+  }));
+
   const toResult = (g: CardGroup): ScrapeResult => ({
     url: cap.url,
     groupCount: groups.length,
     cardCount: g.cards.length,
     fingerprint: g.fingerprint,
+    groupSummaries,
     items: g.cards.map((c) => inferFields(c, byParent)),
   });
 
@@ -40,6 +52,7 @@ export async function scrape(
       groupCount: 0,
       cardCount: 0,
       fingerprint: "",
+      groupSummaries: [],
       items: [],
     };
   }

@@ -62,16 +62,16 @@ export function clusterCards(cap: NormalizedCapture): CardGroup[] {
     (g) => g.cards.length >= MIN_CARDS_PER_GROUP,
   );
 
-  // カード数 × カード平均面積 でスコアリングして「メインの一覧」を上位に
-  groups.sort((a, b) => {
-    const sa =
-      a.cards.length *
-      (a.cards.reduce((s, c) => s + c.areaRatio, 0) / a.cards.length);
-    const sb =
-      b.cards.length *
-      (b.cards.reduce((s, c) => s + c.areaRatio, 0) / b.cards.length);
-    return sb - sa;
-  });
+  // カード数 × 平均面積 × 画像比率 × テキスト比率
+  // 空っぽの <li> の山がメインカードより上に来るのを防ぐ。
+  const scoreOf = (g: CardGroup): number => {
+    const n = g.cards.length;
+    const meanArea = g.cards.reduce((s, c) => s + c.areaRatio, 0) / n;
+    const imgRatio = g.cards.filter((c) => c.hasImage).length / n;
+    const txtRatio = g.cards.filter((c) => c.textLength > 0).length / n;
+    return n * meanArea * (0.3 + 0.7 * imgRatio) * (0.3 + 0.7 * txtRatio);
+  };
+  groups.sort((a, b) => scoreOf(b) - scoreOf(a));
 
   // 各グループのカードを y, x 順に並べる（読み順）
   for (const g of groups) {

@@ -7,7 +7,9 @@ export interface Extracted {
   url: string | null;
 }
 
-const PRICE_RE = /(?:[¥$€£]\s*\d[\d,.\s]*|\d[\d,]{2,}\s*円|\d[\d,]+\s*(?:USD|JPY|EUR))/i;
+const PRICE_RE = /(?:[¥￥$€£]\s*\d[\d,.\s]*|\d[\d,]{2,}\s*円|\d[\d,]+\s*(?:USD|JPY|EUR))/i;
+const POINT_RE = /(?:ポイント|points?|pt)/i;
+const MIN_IMAGE_PX = 50; // バッジ・SVGアイコン除外
 
 function digitDensity(s: string): number {
   if (!s) return 0;
@@ -35,7 +37,14 @@ function descendantsOf(
 
 function pickImage(desc: NormalizedNode[]): NormalizedNode | null {
   const imgs = desc
-    .filter((n) => n.hasImage && n.imgSrc)
+    .filter(
+      (n) =>
+        n.hasImage &&
+        n.imgSrc &&
+        !/\.svg(\?|$)/i.test(n.imgSrc) &&
+        n.w >= MIN_IMAGE_PX &&
+        n.h >= MIN_IMAGE_PX,
+    )
     .sort((a, b) => b.areaRatio - a.areaRatio);
   return imgs[0] ?? null;
 }
@@ -72,12 +81,13 @@ function pickTitle(
 
 function pickPrice(desc: NormalizedNode[]): NormalizedNode | null {
   const candidates = desc
-    .filter((n) => n.text && n.textLength <= 60)
+    .filter((n) => n.text && n.textLength <= 80)
     .map((n) => {
       let score = 0;
       if (PRICE_RE.test(n.text)) score += 5;
       if (digitDensity(n.text) > 0.3) score += 2;
-      if (/¥|\$|€|£|円/.test(n.text)) score += 2;
+      if (/[¥￥$€£円]/.test(n.text)) score += 2;
+      if (POINT_RE.test(n.text)) score -= 4; // 「298ポイント(1%)」を価格と誤認しない
       return { n, score };
     })
     .filter((c) => c.score > 0)
@@ -105,9 +115,17 @@ export function inferFields(
   const title = pickTitle(desc, card);
   const price = pickPrice(desc);
   const link = pickLink(desc, card);
+  // price は match した部分だけ抽出して送料・ポイント等のノイズを落とす
+  let priceOut: string | null = null;
+  if (price) {
+    const compact = price.text.replace(/\s+/g, "");
+    const m = compact.match(PRICE_RE);
+    priceOut = m ? m[0] : compact;
+  }
+
   return {
-    title: title?.text.trim() ?? null,
-    price: price?.text.trim() ?? null,
+    title: title?.text.replace(/\s+/g, " ").trim() ?? null,
+    price: priceOut,
     image: image?.imgSrc ?? null,
     url: link?.href ?? null,
   };

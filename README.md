@@ -43,8 +43,26 @@ npm run scrape -- "https://example.com/search?q=foo"
    - 価格: `¥/$/€/£/円` または数字密度高い短文
    - URL: カード自身がリンクならそれ、なければ最大面積リンク
 
+## 実証結果 (4サイト)
+
+| サイト | カード数 | title | price | image | url |
+|---|---|---|---|---|---|
+| books.toscrape.com | 20/20 | ✓ | £51.77 | ✓ abs | ✓ |
+| jp.mercari.com (検索) | 37/37 | ✓ | ¥2,600 | ✓ webp | ✓ |
+| shopping.yahoo.co.jp (検索) | 40/40 | ほぼ◎ (一部店名混じる) | 1,100円 | ✓ | ✓ |
+| amazon.co.jp (検索) | 55/55 | ✓ | ￥29,800 | ✓ | ✓ (sspaリダイレクト経由) |
+
+すべて class名 / XPath 不使用、stealth (navigator.webdriver / WebGL / plugins) で headless 検知も通過。
+
+## デバッグ
+
+`--debug` で `output/<name>.png` (フルページスクショ) と `output/<name>.raw.json` (生nodes) を保存。
+`--all-groups` で検出した全カードグループを返す（対象グループの選定確認用）。
+`--group N` で N番目のグループに切替（既定は score 最上位）。
+
 ## MVP 制約
 
 - 動的ロード（無限スクロール途中など）は最初の1ビュー＋簡易スクロールのみ
 - ログイン必須サイトは未対応
 - `iframe` 内は対象外
+- タイトル / 価格はルールベース推定。サイトごとに 1〜2件のノイズが残ることはある
