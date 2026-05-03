@@ -1,6 +1,9 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { scrape } from "./extract.js";
+import type { Preset } from "./infer.js";
+
+const PRESETS: Preset[] = ["shopping", "generic", "raw"];
 
 interface CliArgs {
   url: string;
@@ -11,6 +14,7 @@ interface CliArgs {
   headless: boolean;
   waitMs?: number;
   debug: boolean;
+  preset: Preset;
 }
 
 function parseArgs(argv: string[]): CliArgs {
@@ -21,6 +25,7 @@ function parseArgs(argv: string[]): CliArgs {
     stealth: true,
     headless: true,
     debug: false,
+    preset: "generic",
   };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
@@ -32,11 +37,18 @@ function parseArgs(argv: string[]): CliArgs {
     else if (a === "--headed") args.headless = false;
     else if (a === "--wait") args.waitMs = Number(argv[++i]);
     else if (a === "--debug") args.debug = true;
-    else if (!a.startsWith("--") && !args.url) args.url = a;
+    else if (a === "--preset") {
+      const p = argv[++i] as Preset;
+      if (!PRESETS.includes(p)) {
+        console.error(`unknown preset: ${p}. choose from ${PRESETS.join(", ")}`);
+        process.exit(1);
+      }
+      args.preset = p;
+    } else if (!a.startsWith("--") && !args.url) args.url = a;
   }
   if (!args.url) {
     console.error(
-      "Usage: tsx src/index.ts <url> [--out path] [--group N] [--all-groups] [--no-stealth] [--headed] [--wait ms] [--debug]",
+      "Usage: tsx src/index.ts <url> [--preset shopping|generic|raw] [--out path] [--group N] [--all-groups] [--no-stealth] [--headed] [--wait ms] [--debug]",
     );
     process.exit(1);
   }
@@ -54,6 +66,7 @@ async function main() {
     stealth: args.stealth,
     headless: args.headless,
     waitMs: args.waitMs,
+    preset: args.preset,
     screenshotPath: args.debug ? `${stem}.png` : undefined,
     rawNodesPath: args.debug ? `${stem}.raw.json` : undefined,
   });

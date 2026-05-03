@@ -1,7 +1,12 @@
 import { capture, type CaptureOptions } from "./capture.js";
 import { normalize } from "./normalize.js";
 import { clusterCards, type CardGroup } from "./cluster.js";
-import { buildParentIndex, inferFields, type Extracted } from "./infer.js";
+import {
+  buildParentIndex,
+  inferFields,
+  type Extracted,
+  type Preset,
+} from "./infer.js";
 
 export interface GroupSummary {
   cardCount: number;
@@ -10,6 +15,7 @@ export interface GroupSummary {
 
 export interface ScrapeResult {
   url: string;
+  preset: Preset;
   groupCount: number;
   cardCount: number;
   fingerprint: string;
@@ -20,6 +26,7 @@ export interface ScrapeResult {
 export interface ScrapeOptions extends CaptureOptions {
   groupIndex?: number; // どのカードグループを採用するか（既定: 最上位 0）
   allGroups?: boolean; // 全グループ返す場合
+  preset?: Preset; // 既定 "generic"
 }
 
 export async function scrape(
@@ -35,20 +42,23 @@ export async function scrape(
     cardCount: g.cards.length,
     fingerprint: g.fingerprint,
   }));
+  const preset: Preset = opts.preset ?? "generic";
 
   const toResult = (g: CardGroup): ScrapeResult => ({
     url: cap.url,
+    preset,
     groupCount: groups.length,
     cardCount: g.cards.length,
     fingerprint: g.fingerprint,
     groupSummaries,
-    items: g.cards.map((c) => inferFields(c, byParent)),
+    items: g.cards.map((c) => inferFields(c, byParent, preset)),
   });
 
   if (opts.allGroups) return groups.map(toResult);
   if (groups.length === 0) {
     return {
       url: cap.url,
+      preset,
       groupCount: 0,
       cardCount: 0,
       fingerprint: "",
