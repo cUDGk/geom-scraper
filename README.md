@@ -66,7 +66,7 @@ flowchart LR
 |---|---|---|
 | CLI | `src/index.ts` | 手元で叩く / シェルから |
 | Node lib | `src/extract.ts` | 他のNode/TSコードから `import` |
-| MCP server | `src/mcp.ts` | Claude Desktop / Claude Code から |
+| MCP server | `src/mcp.ts` | MCPクライアントから |
 | HTTP API | `src/server.ts` | 他言語 / 別マシン / curl |
 
 ## インストール
@@ -122,13 +122,13 @@ const result = await scrape("https://github.com/trending/typescript", {
 
 ### MCP サーバとして
 
-stdio で MCP サーバとして起動できる。Claude Desktop / Claude Code から呼べる。
+stdio で MCP サーバとして起動できる。MCPクライアントから呼び出せる。
 
 ```bash
 npm run mcp
 ```
 
-Claude Desktop の `claude_desktop_config.json` に登録:
+MCPクライアントの設定ファイル (例: `claude_desktop_config.json`) に登録:
 
 ```json
 {
