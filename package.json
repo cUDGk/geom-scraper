@@ -2,7 +2,7 @@
   "name": "geom-scraper",
   "version": "0.1.0",
   "private": true,
-  "description": "幾何構造ベースのウェブスクレイパー — CSSクラス/XPath不使用でカードを抽出",
+  "description": "幾何構造ベースのウェブスクレイパー — CSSクラス/XPath不使用で反復カード（記事一覧/動画/リポ/EC等）を抽出",
   "type": "module",
   "scripts": {
     "build": "tsc -p .",

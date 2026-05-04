@@ -27,19 +27,19 @@ LLM に HTML を丸投げするのと比べて **約50〜100倍** にトーク�
 | 機能 | 内容 |
 |---|---|
 | クラス/XPath非依存 | 幾何特徴のみで抽出、マークアップ変更に強い |
-| 3プリセット | `shopping` / `generic`(既定) / `raw` |
-| stealth 同梱 | `navigator.webdriver` / WebGL / plugins 等を偽装、Amazon等のbot検知も突破 |
+| 用途を選ばない | ニュース・記事・動画・リポ・SNS・EC など、カードの繰り返しがある画面なら何でも |
+| 3プリセット | `generic`(既定) / `shopping` / `raw` |
+| stealth 同梱 | `navigator.webdriver` / WebGL / plugins 等を偽装、主要サイトのbot検知も通過 |
 | 自動グルーピング | カード数 × 平均面積 × 画像比率 × テキスト比率 でメインリストを自動選択 |
 | URL絶対化 | `srcset` / `data-src` / 相対パスを全部絶対URLに解決 |
 | デバッグ支援 | `--debug` でフルページPNG + 生nodes JSON を出力 |
-| 価格抽出ルール | `[¥￥$€£]xxx` / `xxx円` を match抽出、ポイント表記は除外 |
 
 ### プリセット別の出力
 
 | preset | 出力スキーマ | 用途 |
 |---|---|---|
-| `shopping` | `title` / `price` / `image` / `url` | EC、価格比較 |
-| `generic` (既定) | `image` / `primaryText` / `secondaryText` / `meta[]` / `links[]` / `url` | 何でも（ニュース・記事・動画・リポ） |
+| `generic` (既定) | `image` / `primaryText` / `secondaryText` / `meta[]` / `links[]` / `url` | ニュース・記事・動画・リポ・SNS など何でも |
+| `shopping` | `title` / `price` / `image` / `url` | EC・価格比較（`[¥￥$€£]xxx` / `xxx円` の価格抽出ロジック内蔵、ポイント表記は除外） |
 | `raw` | `texts[]` / `images[]` / `links[]` | LLMに整形させる前段の素材出力 |
 
 ## 処理フロー
@@ -83,10 +83,12 @@ npx playwright install chromium
 ### CLI
 
 ```bash
-# 既定 (generic preset)
+# 既定 (generic preset) — どんなサイトでもまずこれ
 npm run scrape -- "https://news.ycombinator.com/" --out output/hn.json
+npm run scrape -- "https://github.com/trending/typescript" --out output/gh.json
+npm run scrape -- "https://zenn.dev/topics/typescript" --out output/zenn.json
 
-# ショッピングサイト
+# ショッピングサイト (price フィールドが欲しい場合)
 npm run scrape -- "https://jp.mercari.com/search?keyword=switch" --preset shopping
 
 # 素材を全部出して LLM に整形させたい
@@ -176,6 +178,15 @@ curl -X POST -H "content-type: application/json" \
 
 ## 実証結果
 
+### generic preset (既定)
+
+| サイト | カテゴリ | カード数 | primaryText | meta | url |
+|---|---|---|---|---|---|
+| news.ycombinator.com | ニュース掲示板 | 30/30 | 記事タイトル ✓ | 順位 / ドメイン | ✓ |
+| zenn.dev/topics/typescript | 技術記事 | 47/47 | 記事タイトル ✓ | 著者 / 投稿時期 / いいね | ✓ |
+| youtube.com (検索) | 動画 | 10/10 | 動画/プレイリスト名 ✓ | チャンネル / レッスン数 | ✓ |
+| github.com/trending | リポジトリ | 11/11 | リポ名 ✓ | Star / Sponsor等のラベル | ✓ |
+
 ### shopping preset
 
 | サイト | カード数 | title | price | image | url |
@@ -185,26 +196,19 @@ curl -X POST -H "content-type: application/json" \
 | shopping.yahoo.co.jp | 40/40 | ◎ (一部店名混じる) | 1,100円 | ✓ | ✓ |
 | amazon.co.jp (検索) | 55/55 | ✓ | ￥29,800 | ✓ | ✓ (sspaリダイレクト経由) |
 
-### generic preset
-
-| サイト | カード数 | primaryText | meta | url |
-|---|---|---|---|---|
-| news.ycombinator.com | 30/30 | 記事タイトル ✓ | 順位 / ドメイン | ✓ |
-| zenn.dev/topics/typescript | 47/47 | 記事タイトル ✓ | 著者 / 投稿時期 / いいね | ✓ |
-| youtube.com (検索) | 10/10 | 動画/プレイリスト名 ✓ | チャンネル / レッスン数 | ✓ |
-| github.com/trending | 11/11 | リポ名 ✓ | Star / Sponsor等のラベル | ✓ |
-
 ## トークン節約効果
 
 LLM に HTML を丸投げするのと比べて約50〜100倍圧縮できる。
 
-| 入力 | サイズ | 推定トークン |
-|---|---|---|
-| Amazon検索結果ページの生HTML | 約 1.5 MB | 約 40〜80万 |
-| `output/amazon.json` (55カード × 4フィールド) | 約 30 KB | 約 8千 |
-| `--preset generic` の主要フィールドのみ | 約 10〜15 KB | 約 3〜4千 |
+| サイト/対象 | 生HTMLのトークン (概算) | geom-scraper JSON | 圧縮率 |
+|---|---|---|---|
+| GitHub Trending (TS) — 11リポ | 約 10〜15万 | 約 2〜3千 | ~50x |
+| Hacker News フロントページ — 30件 | 約 5〜8万 | 約 1.5〜2千 | ~40x |
+| Zenn topic ページ — 47記事 | 約 20〜30万 | 約 4〜5千 | ~60x |
+| Amazon JP 検索結果 — 55商品 | 約 40〜80万 | 約 8千 | ~70x |
 
 ハイブリッドの推奨パターンは「**ルール抽出で90%、ノイズが残った数件だけ LLM に投げて補正/分類**」。
+特にエージェント系プロダクトでブラウジング → 集計したい場合に効く。
 
 ## 制約
 
