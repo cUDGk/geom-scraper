@@ -2,15 +2,19 @@
   "name": "geom-scraper",
   "version": "0.1.0",
   "private": true,
-  "description": "Geometry-based web scraper that extracts product cards without relying on CSS classes or XPath",
+  "description": "幾何構造ベースのウェブスクレイパー — CSSクラス/XPath不使用でカードを抽出",
   "type": "module",
   "scripts": {
     "build": "tsc -p .",
     "scrape": "tsx src/index.ts",
+    "mcp": "tsx src/mcp.ts",
+    "server": "tsx src/server.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "playwright": "^1.49.0"
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "playwright": "^1.49.0",
+    "zod": "^4.4.2"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",

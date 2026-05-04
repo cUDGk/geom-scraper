@@ -1,110 +1,210 @@
+<div align="center">
+
 # geom-scraper
 
-幾何構造（要素のbbox・テキスト長・画像有無）だけで反復カードを抽出する汎用スクレイパー。
-CSS class / XPath を使わないので、サイトのマークアップが変わっても壊れにくい。
-ショッピングだけでなく、ニュース・記事一覧・動画一覧・リポジトリ一覧など**カード状の繰り返しがあれば何でも**対象。
+### CSSクラスもXPathも使わない、幾何構造ベースのウェブスクレイパー
 
-## 構成
+[![TypeScript](https://img.shields.io/badge/TypeScript-3178C6?style=flat&logo=typescript&logoColor=white)](src/)
+[![Playwright](https://img.shields.io/badge/Playwright-2EAD33?style=flat&logo=playwright&logoColor=white)](src/capture.ts)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green?style=flat)](LICENSE)
 
+**画面のレイアウト（要素の位置・サイズ・形状）だけで、繰り返しカードを自動抽出する。**
+
+---
+
+</div>
+
+## 概要
+
+サイトの DOM クラス名は変わるが、**画面上のレイアウトはそう簡単に変わらない**。
+geom-scraper は要素の bbox / 文字長 / 画像有無といった**幾何情報だけ**で「カード状の繰り返し構造」を見つけ、その中身を JSON にする。
+ショッピングサイトに限らず、ニュース一覧・記事一覧・動画一覧・リポジトリ一覧など、カードの繰り返しがある画面なら何でも対象。
+
+LLM に HTML を丸投げするのと比べて **約50〜100倍** にトークンを圧縮できる。
+
+## 特徴
+
+| 機能 | 内容 |
+|---|---|
+| クラス/XPath非依存 | 幾何特徴のみで抽出、マークアップ変更に強い |
+| 3プリセット | `shopping` / `generic`(既定) / `raw` |
+| stealth 同梱 | `navigator.webdriver` / WebGL / plugins 等を偽装、Amazon等のbot検知も突破 |
+| 自動グルーピング | カード数 × 平均面積 × 画像比率 × テキスト比率 でメインリストを自動選択 |
+| URL絶対化 | `srcset` / `data-src` / 相対パスを全部絶対URLに解決 |
+| デバッグ支援 | `--debug` でフルページPNG + 生nodes JSON を出力 |
+| 価格抽出ルール | `[¥￥$€£]xxx` / `xxx円` を match抽出、ポイント表記は除外 |
+
+### プリセット別の出力
+
+| preset | 出力スキーマ | 用途 |
+|---|---|---|
+| `shopping` | `title` / `price` / `image` / `url` | EC、価格比較 |
+| `generic` (既定) | `image` / `primaryText` / `secondaryText` / `meta[]` / `links[]` / `url` | 何でも（ニュース・記事・動画・リポ） |
+| `raw` | `texts[]` / `images[]` / `links[]` | LLMに整形させる前段の素材出力 |
+
+## 処理フロー
+
+```mermaid
+flowchart LR
+    A[Playwright<br/>page.goto] --> B[capture<br/>全要素のbbox/text/img]
+    B --> C[normalize<br/>viewport正規化]
+    C --> D[cluster<br/>fingerprintで反復検出]
+    D --> E[infer<br/>preset別役割推定]
+    E --> F[(JSON)]
 ```
-src/
-  capture.ts    Playwright で全要素の幾何情報を取得（stealth有効）
-  normalize.ts  viewport 正規化、特徴量を計算
-  cluster.ts    同じ親に並ぶ似た構造を「カード」群として検出
-  infer.ts      preset別に役割推定 (shopping / generic / raw)
-  extract.ts    パイプライン
-  index.ts      CLI
-output/
-  result.json   実行結果
+
+| ステップ | 役割 |
+|---|---|
+| capture | Playwright で全要素の bbox / text / hasImage / isLink / childTags / parent を取得（stealth init script + lazy画像対策スクロール） |
+| normalize | viewport で正規化、aspect ratio / area ratio / log(textLength) を計算 |
+| cluster | 同じ親を持つ兄弟群を fingerprint (`tag\|childCount\|imghave\|aspectBucket\|textLenBucket\|childTagsSig`) で集約、score上位を選ぶ |
+| infer | preset別ルールで image / primaryText / price / meta などを推定 |
+
+このパイプラインを 4種類のエントリポイントから叩ける:
+
+| エントリ | ファイル | 用途 |
+|---|---|---|
+| CLI | `src/index.ts` | 手元で叩く / シェルから |
+| Node lib | `src/extract.ts` | 他のNode/TSコードから `import` |
+| MCP server | `src/mcp.ts` | Claude Desktop / Claude Code から |
+| HTTP API | `src/server.ts` | 他言語 / 別マシン / curl |
+
+## インストール
+
+```bash
+git clone https://github.com/<owner>/geom-scraper.git
+cd geom-scraper
+npm install
+npx playwright install chromium
 ```
 
 ## 使い方
 
+### CLI
+
 ```bash
-npm install
-npx playwright install chromium
-npm run scrape -- "https://example.com/search?q=foo" --preset generic
+# 既定 (generic preset)
+npm run scrape -- "https://news.ycombinator.com/" --out output/hn.json
+
+# ショッピングサイト
+npm run scrape -- "https://jp.mercari.com/search?keyword=switch" --preset shopping
+
+# 素材を全部出して LLM に整形させたい
+npm run scrape -- "https://example.com/" --preset raw
+
+# デバッグ（スクショ + 生nodes 出力）
+npm run scrape -- "https://example.com/" --debug
 ```
 
-オプション:
+### CLI オプション
 
-- `--preset shopping|generic|raw` 出力スキーマ（既定 `generic`）
-- `--out path` 出力先（既定 `output/result.json`）
-- `--group N` どのカードグループを採用するか（既定 0 = 最上位スコア）
-- `--all-groups` 検出した全グループを返す
-- `--no-stealth` stealth init scriptを無効化
-- `--headed` ブラウザを表示
-- `--wait ms` スクロール後の追加待ち
-- `--debug` `<name>.png` (スクショ) + `<name>.raw.json` (生nodes) を出力
+| オプション | 既定 | 説明 |
+|---|---|---|
+| `--preset shopping\|generic\|raw` | `generic` | 出力スキーマ |
+| `--out path` | `output/result.json` | 出力先 |
+| `--group N` | 0 | 何番目のカードグループを採用するか |
+| `--all-groups` | off | 検出した全グループを返す |
+| `--no-stealth` | stealth有効 | stealth init script を切る |
+| `--headed` | headless | ブラウザを表示 |
+| `--wait ms` | 1500 | スクロール後の追加待ち |
+| `--debug` | off | `<name>.png` + `<name>.raw.json` も出す |
 
-## プリセット
+### Node ライブラリとして
 
-### `shopping`
-EC サイト向け。
-```json
-{ "title": "...", "price": "¥1,234", "image": "https://...", "url": "https://..." }
+```ts
+import { scrape } from "./src/extract.js";
+
+const result = await scrape("https://github.com/trending/typescript", {
+  preset: "generic",
+});
+// result.items は ExtractedGeneric[]
 ```
-- `price` は `[¥￥$€£]xx,xxx` または `xx,xxx円` に matchした部分だけを抽出
-- 「ポイント / pt / points」は価格扱いしない
 
-### `generic` (既定)
-ニュース・記事・動画・リポなど何でも。
+### MCP サーバとして
+
+stdio で MCP サーバとして起動できる。Claude Desktop / Claude Code から呼べる。
+
+```bash
+npm run mcp
+```
+
+Claude Desktop の `claude_desktop_config.json` に登録:
+
 ```json
 {
-  "image": "https://...",
-  "primaryText": "見出し相当（タイトル/リポ名/動画タイトル等）",
-  "secondaryText": "説明・本文・リード相当（あれば）",
-  "meta": ["短いテキスト断片の配列（著者/時刻/カウント等）"],
-  "links": [{ "text": "...", "href": "https://..." }],
-  "url": "カードの主リンク"
+  "mcpServers": {
+    "geom-scraper": {
+      "command": "npx",
+      "args": ["tsx", "C:/path/to/geom-scraper/src/mcp.ts"]
+    }
+  }
 }
 ```
 
-### `raw`
-カード内の素材を全部出す。LLM に整形させる前段に。
-```json
-{ "texts": ["...", "..."], "images": ["..."], "links": [{ "text": "...", "href": "..." }] }
+提供ツール:
+
+| tool | 説明 |
+|---|---|
+| `scrape_page` | URL とプリセットを受け取って JSON で返す |
+| `list_card_groups` | 全カードグループの fingerprint と件数だけ返す（preset/group_index 調査用） |
+
+### HTTP API として
+
+```bash
+npm run server          # 既定 127.0.0.1:8765
+PORT=9000 npm run server # ポート指定
+HOST=0.0.0.0 npm run server # LAN公開
 ```
 
-## アルゴリズム
+エンドポイント:
 
-1. Playwright でロード → 全要素の bbox / text / hasImage / isLink / childTags / parent を取得
-2. viewport で正規化、aspect ratio / area ratio / log(textLength) を計算
-3. 同じ親を持つ兄弟群を fingerprint (`tag|childCount|imghave|aspectBucket|textLenBucket|childTagsSig`) で集約
-4. カード数 ≥3 の集約を「カードグループ」、`cards × meanArea × imgRatio × textRatio` で score 順
-5. 各カードを BFS 降下し、preset別ルールで役割推定
+| メソッド | パス | 内容 |
+|---|---|---|
+| GET | `/health` | `{ "ok": true }` |
+| GET | `/scrape?url=...&preset=...&group_index=...&wait_ms=...` | スクレイプ結果JSON |
+| POST | `/scrape` (body: `{url, preset, group_index, all_groups, wait_ms, no_stealth}`) | 同上 |
+
+```bash
+# GET
+curl "http://127.0.0.1:8765/scrape?url=https://news.ycombinator.com/&preset=generic"
+
+# POST
+curl -X POST -H "content-type: application/json" \
+  -d '{"url":"https://github.com/trending/typescript","preset":"generic"}' \
+  http://127.0.0.1:8765/scrape
+```
 
 ## 実証結果
 
 ### shopping preset
+
 | サイト | カード数 | title | price | image | url |
 |---|---|---|---|---|---|
-| books.toscrape.com | 20/20 | ✓ | £51.77 | ✓ abs | ✓ |
+| books.toscrape.com | 20/20 | ✓ | £51.77 | ✓ | ✓ |
 | jp.mercari.com (検索) | 34/34 | ✓ | ¥2,600 | ✓ webp | ✓ |
-| shopping.yahoo.co.jp (検索) | 40/40 | ほぼ◎ | 1,100円 | ✓ | ✓ |
+| shopping.yahoo.co.jp | 40/40 | ◎ (一部店名混じる) | 1,100円 | ✓ | ✓ |
 | amazon.co.jp (検索) | 55/55 | ✓ | ￥29,800 | ✓ | ✓ (sspaリダイレクト経由) |
 
 ### generic preset
-| サイト | カード数 | primaryText | meta含有 | url |
+
+| サイト | カード数 | primaryText | meta | url |
 |---|---|---|---|---|
-| news.ycombinator.com | 30/30 | 記事タイトル ✓ | 順位/ドメイン | ✓ |
-| zenn.dev/topics/typescript | 47/47 | 記事タイトル ✓ | 著者/投稿時期/いいね数 | ✓ |
-| youtube.com (検索) | 10/10 | 動画/プレイリスト名 ✓ | チャンネル/レッスン数 | ✓ |
-| github.com/trending | 11/11 | リポ名 ✓ | 「Star」等のラベル | ✓ |
+| news.ycombinator.com | 30/30 | 記事タイトル ✓ | 順位 / ドメイン | ✓ |
+| zenn.dev/topics/typescript | 47/47 | 記事タイトル ✓ | 著者 / 投稿時期 / いいね | ✓ |
+| youtube.com (検索) | 10/10 | 動画/プレイリスト名 ✓ | チャンネル / レッスン数 | ✓ |
+| github.com/trending | 11/11 | リポ名 ✓ | Star / Sponsor等のラベル | ✓ |
 
-すべて class名 / XPath 不使用、stealth (navigator.webdriver / WebGL / plugins) で headless 検知も通過。
+## トークン節約効果
 
-## トークン節約
-
-LLM に HTML を丸投げするのと比べて **約50〜100倍** 圧縮:
+LLM に HTML を丸投げするのと比べて約50〜100倍圧縮できる。
 
 | 入力 | サイズ | 推定トークン |
 |---|---|---|
-| Amazon検索結果ページの生HTML | ~1.5MB | 約40〜80万 |
-| `output/amazon.json` (55カード × 4フィールド) | 約30KB | 約8千 |
-| `--preset generic` の主要フィールドのみ | 約10〜15KB | 約3〜4千 |
+| Amazon検索結果ページの生HTML | 約 1.5 MB | 約 40〜80万 |
+| `output/amazon.json` (55カード × 4フィールド) | 約 30 KB | 約 8千 |
+| `--preset generic` の主要フィールドのみ | 約 10〜15 KB | 約 3〜4千 |
 
-LLMハイブリッド推奨パターン: **ルール抽出で90%、ノイズが残った数件だけ LLM に投げて補正/分類**。
+ハイブリッドの推奨パターンは「**ルール抽出で90%、ノイズが残った数件だけ LLM に投げて補正/分類**」。
 
 ## 制約
 
@@ -113,3 +213,7 @@ LLMハイブリッド推奨パターン: **ルール抽出で90%、ノイズが�
 - `iframe` 内は対象外
 - カードが複数行 (`<tr>` を2行で1記事 等) に跨る構造は片側しか拾わない (HN例)
 - ルールベース推定なので 1〜2件のノイズは残る — 完璧にしたい場合は `--preset raw` で素材出力して LLM に整形させる
+
+## ライセンス
+
+[MIT License](LICENSE) — Copyright (c) 2026 cUDGk
