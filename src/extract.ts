@@ -21,6 +21,8 @@ export interface ScrapeResult {
   fingerprint: string;
   groupSummaries: GroupSummary[];
   items: Extracted[];
+  // U4: surfaced when the requested groupIndex was clamped, etc.
+  note?: string;
 }
 
 export interface ScrapeOptions extends CaptureOptions {
@@ -29,6 +31,15 @@ export interface ScrapeOptions extends CaptureOptions {
   preset?: Preset; // 既定 "generic"
 }
 
+// B3: explicit overloads so callers get the right return type
+export async function scrape(
+  url: string,
+  opts: ScrapeOptions & { allGroups: true },
+): Promise<ScrapeResult[]>;
+export async function scrape(
+  url: string,
+  opts?: ScrapeOptions,
+): Promise<ScrapeResult>;
 export async function scrape(
   url: string,
   opts: ScrapeOptions = {},
@@ -66,6 +77,12 @@ export async function scrape(
       items: [],
     };
   }
-  const idx = Math.min(opts.groupIndex ?? 0, groups.length - 1);
-  return toResult(groups[idx]);
+  // B4: clamp groupIndex and note when it was clamped
+  const rawIdx = opts.groupIndex ?? 0;
+  const idx = Math.min(rawIdx, groups.length - 1);
+  const result = toResult(groups[idx]!);
+  if (rawIdx > idx) {
+    result.note = `groupIndex ${rawIdx} out of range; clamped to ${idx} (groupCount=${groups.length})`;
+  }
+  return result;
 }

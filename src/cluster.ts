@@ -64,6 +64,7 @@ export function clusterCards(cap: NormalizedCapture): CardGroup[] {
 
   // カード数 × 平均面積 × 画像比率 × テキスト比率
   // 空っぽの <li> の山がメインカードより上に来るのを防ぐ。
+  // B8: precompute scores to avoid O(n²) recomputation during sort
   const scoreOf = (g: CardGroup): number => {
     const n = g.cards.length;
     const meanArea = g.cards.reduce((s, c) => s + c.areaRatio, 0) / n;
@@ -71,7 +72,10 @@ export function clusterCards(cap: NormalizedCapture): CardGroup[] {
     const txtRatio = g.cards.filter((c) => c.textLength > 0).length / n;
     return n * meanArea * (0.3 + 0.7 * imgRatio) * (0.3 + 0.7 * txtRatio);
   };
-  groups.sort((a, b) => scoreOf(b) - scoreOf(a));
+  const scored = groups.map((g) => ({ g, score: scoreOf(g) }));
+  scored.sort((a, b) => b.score - a.score);
+  groups.length = 0;
+  for (const { g } of scored) groups.push(g);
 
   // 各グループのカードを y, x 順に並べる（読み順）
   for (const g of groups) {

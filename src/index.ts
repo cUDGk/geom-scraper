@@ -28,9 +28,9 @@ function parseArgs(argv: string[]): CliArgs {
     preset: "generic",
   };
   for (let i = 0; i < argv.length; i++) {
-    const a = argv[i];
-    if (a === "--url") args.url = argv[++i];
-    else if (a === "--out") args.out = argv[++i];
+    const a = argv[i] ?? "";
+    if (a === "--url") args.url = argv[++i] ?? "";
+    else if (a === "--out") args.out = argv[++i] ?? args.out;
     else if (a === "--all-groups") args.allGroups = true;
     else if (a === "--group") args.groupIndex = Number(argv[++i]);
     else if (a === "--no-stealth") args.stealth = false;
@@ -38,7 +38,7 @@ function parseArgs(argv: string[]): CliArgs {
     else if (a === "--wait") args.waitMs = Number(argv[++i]);
     else if (a === "--debug") args.debug = true;
     else if (a === "--preset") {
-      const p = argv[++i] as Preset;
+      const p = (argv[++i] ?? "") as Preset;
       if (!PRESETS.includes(p)) {
         console.error(`unknown preset: ${p}. choose from ${PRESETS.join(", ")}`);
         process.exit(1);

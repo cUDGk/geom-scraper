@@ -52,6 +52,10 @@ function descendantsOf(
   byParent: Map<number | null, NormalizedNode[]>,
 ): NormalizedNode[] {
   const out: NormalizedNode[] = [];
+  // B5: build idMap to handle orphaned subtrees — we traverse by parentId lookup,
+  // so orphaned nodes (whose parentId points to a missing id) simply won't be
+  // reachable from root and are safely excluded. No extra handling needed beyond
+  // the existing seen-set guard against cycles.
   const stack: NormalizedNode[] = [root];
   const seen = new Set<number>();
   while (stack.length) {
@@ -116,7 +120,12 @@ function pickSecondary(
   const candidates = desc
     .filter(
       (n) =>
-        primary == null || (n.id !== primary.id && !isAncestorOf(n, primary)),
+        primary == null ||
+        (n.id !== primary.id &&
+          // exclude containers that wrap primary (ancestors)
+          !isAncestorOf(n, primary) &&
+          // exclude nodes fully inside primary (descendants) — would duplicate primary text
+          !isAncestorOf(primary, n)),
     )
     .filter(
       (n) =>
@@ -135,29 +144,39 @@ function pickSecondary(
   return candidates[0]?.n ?? null;
 }
 
-function isAncestorOf(a: NormalizedNode, b: NormalizedNode): boolean {
-  // a の bbox が b を完全に内包し、面積も a >= b なら祖先寄り（厳密ではない近似）
-  return (
-    a.x <= b.x &&
-    a.y <= b.y &&
-    a.x + a.w >= b.x + b.w &&
-    a.y + a.h >= b.y + b.h &&
-    a.id !== b.id
-  );
+/**
+ * B6: renamed conceptually — this checks whether bbox `a` fully contains bbox `b`,
+ * not DOM ancestry. Used as a heuristic proxy for "a is an ancestor of b".
+ * C1: strict-area guard prevents same-size siblings from mutually containing
+ * each other — `a` must be strictly larger than `b` by area.
+ */
+function bboxContains(a: NormalizedNode, b: NormalizedNode): boolean {
+  if (a.id === b.id) return false;
+  if (a.w * a.h <= b.w * b.h) return false;
+  return a.x <= b.x && a.y <= b.y && a.x + a.w >= b.x + b.w && a.y + a.h >= b.y + b.h;
 }
+// Keep old name as alias so internal callers compile without churn
+const isAncestorOf = bboxContains;
 
 function pickPrice(desc: NormalizedNode[]): NormalizedNode | null {
+  // B7: require PRICE_RE to match; high digit-density alone is insufficient.
+  // B2: raise gate to 7 so the POINT_RE penalty (-4) cannot be offset by the
+  // currency-symbol bonus (+2). Previously a "100 ポイント還元" snippet that
+  // also contained a "¥" elsewhere could clear a gate of 5 after penalty.
   const candidates = desc
     .filter((n) => n.text && n.textLength <= 80)
     .map((n) => {
       let score = 0;
       if (PRICE_RE.test(n.text)) score += 5;
-      if (digitDensity(n.text) > 0.3) score += 2;
+      // digit-density bonus only when PRICE_RE already matched
+      if (PRICE_RE.test(n.text) && digitDensity(n.text) > 0.3) score += 2;
       if (/[¥￥$€£円]/.test(n.text)) score += 2;
       if (POINT_RE.test(n.text)) score -= 4;
       return { n, score };
     })
-    .filter((c) => c.score > 0)
+    // gate at 7: PRICE_RE (5) + currency or density bonus (2). POINT_RE (-4)
+    // cannot be cancelled by a single +2 bonus, so point-only nodes are out.
+    .filter((c) => c.score >= 7)
     .sort((a, b) => b.score - a.score);
   return candidates[0]?.n ?? null;
 }
