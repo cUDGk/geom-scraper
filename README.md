@@ -72,11 +72,13 @@ flowchart LR
 ## インストール
 
 ```bash
-git clone https://github.com/<owner>/geom-scraper.git
+git clone https://github.com/cUDGk/geom-scraper.git
 cd geom-scraper
 npm install
 npx playwright install chromium
 ```
+
+> **Linux / Docker (root) で動かす場合**: `GEOM_SCRAPER_NO_SANDBOX=1` を設定すると Chromium が `--no-sandbox` で起動する。サンドボックスを切るのはセキュリティ上の妥協なので、コンテナ内など他の隔離手段がある環境のみで使うこと。
 
 ## 使い方
 
@@ -102,6 +104,7 @@ npm run scrape -- "https://example.com/" --debug
 
 | オプション | 既定 | 説明 |
 |---|---|---|
+| `--url <url>` | (必須) | スクレイプ対象の URL (位置引数でも可) |
 | `--preset shopping\|generic\|raw` | `generic` | 出力スキーマ |
 | `--out path` | `output/result.json` | 出力先 |
 | `--group N` | 0 | 何番目のカードグループを採用するか |
@@ -109,12 +112,14 @@ npm run scrape -- "https://example.com/" --debug
 | `--no-stealth` | stealth有効 | stealth init script を切る |
 | `--headed` | headless | ブラウザを表示 |
 | `--wait ms` | 1500 | スクロール後の追加待ち |
-| `--debug` | off | `<name>.png` + `<name>.raw.json` も出す |
+| `--debug` | off | `<name>.png` + `<name>.raw.json` も出す（CLIのみ） |
 
 ### Node ライブラリとして
 
 ```ts
-import { scrape } from "./src/extract.js";
+// ビルド後 (npm run build) は dist/extract.js を使う
+import { scrape } from "./dist/extract.js";
+// tsx / ts-node で直接実行する場合は ./src/extract.js でも可
 
 const result = await scrape("https://github.com/trending/typescript", {
   preset: "generic",
@@ -136,19 +141,21 @@ MCPクライアントの設定ファイル (例: `claude_desktop_config.json`) �
 {
   "mcpServers": {
     "geom-scraper": {
-      "command": "npx",
-      "args": ["tsx", "C:/path/to/geom-scraper/src/mcp.ts"]
+      "command": "node",
+      "args": ["--import", "tsx/esm", "C:/path/to/geom-scraper/src/mcp.ts"]
     }
   }
 }
 ```
 
+> ビルド済みの JS を使う場合は `npm run build` 後に `node C:/path/to/geom-scraper/dist/mcp.js` を `command`/`args` に指定する。`npx -y tsx` を毎回起動するパターンは MCP クライアント側でタイムアウトすることがあるため非推奨。
+
 提供ツール:
 
-| tool | 説明 |
-|---|---|
-| `scrape_page` | URL とプリセットを受け取って JSON で返す |
-| `list_card_groups` | 全カードグループの fingerprint と件数だけ返す（preset/group_index 調査用） |
+| tool | 引数 | 説明 |
+|---|---|---|
+| `scrape_page` | `url`, `preset`, `group_index`, `all_groups`, `wait_ms` | URL とプリセットを受け取って JSON で返す |
+| `list_card_groups` | `url`, `wait_ms` | 全カードグループの fingerprint と件数だけ返す（preset/group_index 調査用） |
 
 ### HTTP API として
 
@@ -163,8 +170,8 @@ HOST=0.0.0.0 npm run server # LAN公開
 | メソッド | パス | 内容 |
 |---|---|---|
 | GET | `/health` | `{ "ok": true }` |
-| GET | `/scrape?url=...&preset=...&group_index=...&wait_ms=...` | スクレイプ結果JSON |
-| POST | `/scrape` (body: `{url, preset, group_index, all_groups, wait_ms, no_stealth}`) | 同上 |
+| GET | `/scrape?url=...&preset=...&group_index=...&all_groups=...&wait_ms=...` | スクレイプ結果JSON |
+| POST | `/scrape` (body: `{url, preset, group_index, all_groups, wait_ms}`) | 同上 |
 
 ```bash
 # GET
@@ -209,6 +216,29 @@ LLM に HTML を丸投げするのと比べて約50〜100倍圧縮できる。
 
 ハイブリッドの推奨パターンは「**ルール抽出で90%、ノイズが残った数件だけ LLM に投げて補正/分類**」。
 特にエージェント系プロダクトでブラウジング → 集計したい場合に効く。
+
+## セキュリティ
+
+### 環境変数
+
+| 変数 | 既定 | 説明 |
+|---|---|---|
+| `GEOM_SCRAPER_API_TOKEN` | (未設定) | HTTP API の Bearer トークン認証。設定時は `Authorization: Bearer <token>` ヘッダーが必須 |
+| `GEOM_SCRAPER_MAX_CONCURRENT` | `3` | HTTP API の同時リクエスト上限。超過は 429 を返す |
+| `GEOM_SCRAPER_CORS_ORIGIN` | (未設定) | CORS で許可するオリジン (例: `https://example.com`)。未設定時は CORS ヘッダーなし（同一オリジン保護） |
+| `GEOM_SCRAPER_ALLOW_PRIVATE` | (未設定) | `1` を設定すると RFC1918/ループバック/リンクローカルへのリクエストを許可（Docker 内部ネット等） |
+| `GEOM_SCRAPER_NO_SANDBOX` | (未設定) | `1` を設定すると Chromium の `--no-sandbox` を有効化（Docker root 環境向け） |
+| `GEOM_SCRAPER_SCRAPE_TIMEOUT_MS` | `60000` | HTTP API の1リクエストあたりの最大処理時間（ミリ秒）。超過は 504 を返す |
+| `GEOM_SCRAPER_OUTPUT_ROOT` | `<cwd>/output` | `screenshotPath` / `rawNodesPath` の出力先ルート。このディレクトリ外へのパスは拒否される |
+
+### SSRF 対策
+
+デフォルトでは `http:` / `https:` 以外のスキームおよびプライベートアドレス (`10.x`, `172.16-31.x`, `192.168.x`, `127.x`, `::1` 等) へのリクエストはブロックされる。
+`GEOM_SCRAPER_ALLOW_PRIVATE=1` で解除できるが、信頼できる環境のみで使用すること。
+
+### `screenshotPath` / `rawNodesPath`
+
+これらのオプションは **CLI (`--debug`) のみ**で使用される内部デバッグ用。HTTP API と MCP の入力からは除外されている。
 
 ## 制約
 

@@ -12,7 +12,8 @@
     "forceConsistentCasingInFileNames": true,
     "resolveJsonModule": true,
     "declaration": false,
-    "sourceMap": true
+    "sourceMap": true,
+    "noUncheckedIndexedAccess": true
   },
   "include": ["src/**/*.ts"]
 }
